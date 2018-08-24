@@ -1,0 +1,287 @@
+     H NoMain
+     h  Debug(*Yes)
+     h  Option(*SrcStmt:*NoDebugIO:*ShowCpy:*NoUnref)
+     h  AlwNull(*UsrCtl)
+     h* Thread(*Serialize)
+
+     F*PADRJR    IF   E             DISK    UsrOpn
+     f*                                       InfDs(InfADRJR)
+     FLADRJRB   IF   E           K DISK    UsrOpn
+     f                                       Rename(rADRJR:rADRJRb)
+     f                                       InfDs(InfADRJRb)
+
+      *--- Define File Information Data Structure -----------------------------
+      *************************************************************************
+     D* infADRJR        DS                  Qualified
+     d*  rrn                  397    400I 0                                      * Relative-rcd-num
+     D infADRJRb       DS                  Qualified
+     d  rrn                  397    400I 0                                      * Relative-rcd-num
+
+      *--- Define Program Status Data Structure -------------------------------
+      *************************************************************************
+     D psDS           SDS                  Qualified
+     d  PROC_NAME        *PROC                                                  * Procedure name
+     d  PGM_STATUS       *STATUS                                                * Status code
+     d  PRV_STATUS            16     20S 0                                      * Previous status
+     d  LINE_NUM              21     28                                         * Src list line num
+     d  ROUTINE          *ROUTINE                                               * Routine name
+     d  PARMS            *PARMS                                                 * Num passed parms
+     d  EXCP_ERR              40     46                                         * Exception Error
+     d  EXCP_TYPE             40     42                                         * Exception type
+     d  EXCP_NUM              43     46                                         * Exception number
+     d  EXCP_DATA             91    170                                         * Exception data
+
+      *- Declare Prototypes ---------------------------------------------------
+      *************************************************************************
+      /Define MDBADRJRI
+      /COPY QHDRMODSRC,PDBADRJR
+
+      /COPY QHDRMODSRC,PDBSYS
+      /COPY QHDRMODSRC,PDBPHPL
+
+
+      *--- Define Global Data ---(Level Job/ActGrp pour le module) ------------
+      *************************************************************************
+       DCL-S oCacheActive   Ind Inz(*Off);
+
+      *--- Define global structure DB with pointer --
+       DCL-DS db    Based(pDB) LikeDs(@dbPHP#dsPHP);
+       //DCL-DS dbJR  Based(pJR) LikeDs(@dbPHP#dsADRJR);
+       DCL-DS dbJR  Based(pJR) LikeDs(@dbADRJR#dsADRJR);
+
+      *--- Define global KEY, DATA & STATUS for file access with percistence --
+       //DCL-DS gbJR         LikeRec(rADRJRb)      Inz;
+       //DCL-S  gLastGetJR   Timestamp             Inz(*Loval);
+       DCL-S  gLastGetJRb  Timestamp             Inz(*Loval);
+       DCL-DS gbJRb        LikeRec(rADRJRb)      Inz ;
+       DCL-DS gkJRb        LikeRec(rADRJRb:*KEY) Inz ;
+
+      *------------------------------------------------------------------------*
+      * Close file Input [Local/Export]                                        *
+      * -- Close all file from PADRJR                                          *
+      *------------------------------------------------------------------------*
+       DCL-PROC CloseADRJRinp  EXPORT;
+        DCL-PI *N    Ind;
+        END-PI;
+      *
+      * if %open(PADRJR);
+      *   Close PADRJR;
+      * endif;
+        if %open(LADRJRB);
+          Close LADRJRB;
+        endif;
+        Return *On;
+      *
+       END-PROC;
+      *-----------------------------------*
+
+      *------------------------------------------------------------------------*
+      * PROCEDURE [LOCAL.SERVICE]                                              *
+      * Reload File : PLEG00                                                   *
+      *   Force the reload data of files in the next getter                    *
+      *------------------------------------------------------------------------*
+       DCL-PROC ReloadADRJR  EXPORT;
+        DCL-PI *N    Ind;
+        END-PI;
+      *
+      * clear gbJR;
+      * clear gLastGetJR;
+        clear gbJRb;
+        clear gLastGetJRb;
+        clear dbJR.Rec;
+        Return *On;
+      *
+       END-PROC;
+      *-----------------------------------*
+
+      *------------------------------------------------------------------------*
+      * Chain PADRJR   [Local/Export]                                          *
+      * -- Load record from PADRJR  by RRN                                     *
+      *------------------------------------------------------------------------*
+     P*ChainADRJR      B                   EXPORT
+     d*                PI              N
+     d* ptr                            *
+     d* pRRN                         10i 0 Const
+      *--- Define ---
+     D*eChkParm        S              6S 0 Inz
+      *
+      *MONITOR;
+      *  pDB = ptr;
+      *  pJR = %addr(db.ADRJR);
+      *
+      *  clear dbJR.Sts; // DBclrStatus(pJR);
+      *  clear dbJR.Err; // DBclrError(pJR);
+      *  exsr ChkParm;
+      *  if eChkParm = *Zero;
+      *
+      *    if not %open(PADRJR);  // Opening file if not already opened
+      *      clear gbJR;
+      *      clear gLastGetJR;
+      *      clear dbJR.Rec;
+      *      Open PADRJR;
+      *    endif;
+      *
+      *    Select;
+      *      when pRRN = infADRJR.rrn  // Previous reading was same record
+      *       and %found(PADRJR);
+      *          dbJR.Sts.found = *On;
+      *          dbJR.Sts.fndInCache = *On;
+      *      other;   // Load data
+      *          chain pRRN PADRJR gbJR;
+      *          dbJR.Sts.found = %found(PADRJR);
+      *          gLastGetJR = %timestamp();
+      *    Endsl;
+      *    if dbJR.Sts.found; // DBfound(dbJR)
+      *      eval-corr dbJR.Rec = gbJR;
+      *    else;
+      *      clear dbJR.Rec; // And what about Errors, Warning  ??
+      *    endif;
+      *
+      *  else;  // Error in chkParm or initParm
+      *    // ?????
+      *  endif;
+      *
+      *  // Is this correct if there are other files ????
+      *  eval-corr db.Sts = dbJR.Sts;
+      *  eval-corr db.Err = dbJR.Err;
+      *
+      *  Return *On;
+      *
+      *ON-ERROR *All;
+      *  clear dbJR.Rec; // No data -> no buffer
+      *  clear gbJR;    // No data -> no cache ??? (utile ?)
+      *
+      *  // Init db.Err.Error & ErrCd & ErrMsg ...
+      *  Return *Off;
+      *ENDMON;
+      *
+      *// *** Subroutine ******************************************************
+      *BegSr ChkParm;
+      *  exsr InitParm;
+      *  if pRRN <= *ZERO;
+      *    // eChkParm = ???error???
+      *  endif;
+      *EndSr;
+      *BegSr InitParm;
+      *EndSr;
+      *
+     P*ChainADRJR      E
+      *-----------------------------------*
+
+      *------------------------------------------------------------------------*
+      * Chain LADRJRB  [Local/Export]                                          *
+      * -- Load record from LADRJRB by INNS                                    *
+      *------------------------------------------------------------------------*
+       DCL-PROC ChainADRJRB  EXPORT;
+        DCL-PI *N    Ind;
+          ptr        Pointer;
+          pIDFD      Zoned(3)  Const;
+          pEXID      Zoned(13) Const;
+          xTypAdres  Char(1)   Const Options(*NOPASS);
+        //xDtSrch    Date      Const Options(*NOPASS);
+        END-PI;
+         DCL-S  pTypAdres    Char(1);
+         //DCL-S  pDtSrch    Date;
+         DCL-S  kTypAdr      Char(2);
+        // --- Define ---
+         DCL-S  eChkParm     Ind Inz(*Off);
+      *
+       MONITOR;
+         pDB = ptr;
+         if pTypAdres = 'M';  // Mail
+           pJR = %addr(db.ADRJRM);
+           kTypAdr = '02';
+         else;      //  'H'   // Home
+           pJR = %addr(db.ADRJRH);
+           kTypAdr = '01';
+         endif;
+
+         clear dbJR.Sts; // DBclrStatus(pJR);
+         clear dbJR.Err; // DBclrError(pJR);
+         exsr ChkParm;
+         if eChkParm = *Off;
+
+           if not %open(LADRJRB);  // Opening file if not already opened
+             clear gbJRb;
+             clear gLastGetJRb;
+             clear dbJR.Rec;
+             Open LADRJRB;
+           endif;
+
+           Select;
+             when oCacheActive
+              and pIDFD     = gbJRb.IDFDJR
+              and pEXID     = gbJRb.EXIDJR
+              and kTypAdr = gbJRb.ABGIJR
+              and %found(LADRJRB);
+               dbJR.Sts.found = *On;
+               dbJR.Sts.fndInCache = *On;
+
+             other;   // Load data
+                          gkJRb.IDFDJR = pIDFD;
+                          gkJRb.EXIDJR = pEXID;
+                          gkJRb.ABGIJR = kTypAdr;
+               chain %kds(gkJRb:3) LADRJRB gbJRb;
+               dbJR.Sts.found = %found(LADRJRb);
+               gLastGetJRb = %timestamp();
+           Endsl;
+
+           if dbJR.Sts.found; // DBfound(dbJR)
+             eval-corr dbJR.Rec = gbJRb;
+           else;
+             clear dbJR.Rec; // And what about Errors, Warning  ??
+           endif;
+
+         else;  // Error in chkParm or initParm
+           clear dbJR.Rec;
+         endif;
+
+         eval-corr db.Sts = dbJR.Sts;
+         eval-corr db.Err = dbJR.Err;
+         Return *On;
+
+       ON-ERROR *All;
+         clear gbJRb;     // No data -> no cache ??? (utile ?)
+         clear dbJR.Rec; // No data -> no buffer
+         clear dbJR.Sts;
+         dbJR.Err.error = *On;
+         dbJR.Err.ErrCd = psDS.EXCP_ERR;
+
+         eval-corr db.Sts = dbJR.Sts;
+         eval-corr db.Err = dbJR.Err;
+         Return *Off;
+       ENDMON;
+
+       // *** Subroutine ******************************************************
+       BegSr ChkParm;
+         exsr InitParm;
+         if pIDFD <= *ZERO;
+           eChkParm = *On;
+           dbJR.Err.error  = *On;
+           dbJR.Err.ErrCd  = 'MDB0001';
+           dbJR.Err.ErrMsg = 'Error in parameters';
+         endif;
+         if pEXID <= *ZERO;
+           eChkParm = *On;
+           dbJR.Err.error  = *On;
+           dbJR.Err.ErrCd  = 'MDB0002';
+           dbJR.Err.ErrMsg = 'Error in parameters';
+         endif;
+         if not(pTypAdres = 'H' or pTypAdres = 'M');  // 'H=01','M=02','?=03','?=04','?=06' ???
+           eChkParm = *On;
+           dbJR.Err.error  = *On;
+           dbJR.Err.ErrCd  = 'MDB0003';
+           dbJR.Err.ErrMsg = 'Error in parameters';
+         endif;
+       EndSr;
+       // ------------
+       BegSr InitParm;
+          if %Parms >= %ParmNum(xTypAdres) and %Addr(xTypAdres) <> *NULL;
+             pTypAdres = xTypAdres;
+          else;
+             pTypAdres = 'H'; // Default Home
+          endif;
+       EndSr;
+      *
+       END-PROC;
+      *-----------------------------------*
