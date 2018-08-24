@@ -1,0 +1,558 @@
+     H NoMain
+     h  Debug(*Yes)
+     h  Option(*SrcStmt:*NoDebugIO:*ShowCpy:*NoUnref)
+     h  AlwNull(*UsrCtl)
+
+      /Define MDBPHPX
+      *- Declare Prototypes ---------------------------------------------------
+      *************************************************************************
+       ///COPY QHDRMODSRC,PDBSYS  // Déjà inclu dans PDBPHP
+      /COPY QHDRMODSRC,PDBPHP
+      /COPY QHDRMODSRC,PDBPHPL
+
+      *--- Define Global Data ---(Level Job/ActGrp pour le module) ------------
+      *************************************************************************
+      *---  Define Buffer full DB PHP --
+     D  db             DS                  Based(pDB)
+     d                                     LikeDs(@dbPHP#dsPHP)
+     D* dbADRH         DS                  Based(pJR)
+     d*                                    LikeDs(@dbADRJR#dsADRJR)
+
+      *--- Define globale for Module ---
+
+      *------------------------------------------------------------------------*
+      * [Export] dbPHPbufferLen                                                *
+      *  Longueur du buffer                                                    *
+      *------------------------------------------------------------------------*
+     P dbPHPbufferLen...
+     P                 B                   EXPORT
+     D                 PI            10I 0
+
+       Return %size(db);   // +2 ou +4 ???
+     P                 E
+      * ------
+
+      *------------------------------------------------------------------------*
+      * [Export] dbPHPbufferInit                                               *
+      *  Initialisation du buffer                                              *
+      *------------------------------------------------------------------------*
+     P dbPHPbufferInit...
+     P                 B                   EXPORT
+     D                 PI              N
+     d  ptr                            *
+
+       pDB = ptr;
+
+       clear db;
+       Return *On;
+     P                 E
+      * ------
+
+      *------------------------------------------------------------------------*
+      * [Export] dbPHPbufferInit                                               *
+      *  Initialisation du buffer                                              *
+      *------------------------------------------------------------------------*
+     P dbPHPreload...
+     P                 B                   EXPORT
+     D                 PI              N
+
+       ReloadFYSL8();
+       ReloadADRJR();
+
+       Return *On;
+     P                 E
+      * ------
+
+      *------------------------------------------------------------------------*
+      * [Export] dbPHPloadPFYSL8ByEXID                                         *
+      *  Retourne                                                              *
+      *------------------------------------------------------------------------*
+     P dbPHPloadDATAbyEXID...
+     P                 B                   EXPORT
+     D                 PI              N
+     d  ptr                            *
+     d  pIDFD                         3S 0 Const
+     d  pEXID                        13S 0 Const
+
+       pDB = ptr;
+
+       DBclrError(ptr);
+       ChainFYSL8e(ptr:pIDFD:pEXID);
+       if DBerror(ptr);
+         Return *Off;
+       endif;
+
+       ChainADRJRb(ptr:pIDFD:pEXID:'H');
+       if DBerror(ptr);
+         Return *Off;
+       endif;
+
+       ChainADRJRb(ptr:pIDFD:pEXID:'M');
+       if DBerror(ptr);
+         Return *Off;
+       endif;
+
+       Return DBfound(ptr);
+     P                 E
+      * ------
+
+      *------------------------------------------------------------------------*
+      * [Export] dbPHPLoadDATAbyINNS                                           *
+      *  Retourne                                                              *
+      *------------------------------------------------------------------------*
+     P dbPHPloadDATAbyINNS...
+     P                 B                   EXPORT
+     D                 PI              N
+     d  ptr                            *
+     d  pINNS                         9S 0 Const
+
+     D  xIDFD          S              3S 0
+     D  xEXID          S             13S 0
+     D  ToDayN8        S              8S 0
+
+       pDB = ptr;
+
+       #keyLinkEXIDbyINNS(ptr:xIDFD:xEXID:pINNS);
+       if DBfound(ptr);
+         DBclrError(ptr);
+
+         ChainFYSL8e(ptr:xIDFD:xEXID);
+         If DBerror(ptr);
+           Return *Off;
+         endif;
+
+         ChainADRJRb(ptr:xIDFD:xEXID:'H');
+         if DBerror(ptr);
+           Return *Off;
+         endif;
+
+         ChainADRJRb(ptr:xIDFD:xEXID:'M');
+         if DBerror(ptr);
+           Return *Off;
+         endif;
+
+       endif;
+       Return DBfound(ptr);
+     P                 E
+      * ------
+
+      *------------------------------------------------------------------------*
+      * [Export] dbPHPisINNSExist                                              *
+      *  Check (&load) if INNS exist                                           *
+      *------------------------------------------------------------------------*
+     P dbPHPisINNSexist...
+     p                 B                   EXPORT
+     d                 PI              N
+     d  ptr                            *
+     d  pINNS                         9S 0 Const
+
+     D  xIDFD          S              3S 0
+     D  xEXID          S             13S 0
+       pDB = ptr;
+
+       DBclrError(ptr);
+       #keyLinkEXIDbyINNS(ptr:xIDFD:xEXID:pINNS);
+       if DBfound(ptr);
+         DBclrError(ptr);
+
+         ChainFYSL8e(ptr:xIDFD:xEXID);
+         If DBerror(ptr);
+         endif;
+
+       endif;
+       if DBerror(ptr);
+         Return *Off;
+       endif;
+       Return DBFound(ptr);
+
+     P                 E
+
+      *------------------------------------------------------------------------*
+      * [Export] dbPHPgetINNS                                                  *
+      *  Retourne le n° interne du membre                                      *
+      *------------------------------------------------------------------------*
+     P dbPHPgetINNS...
+     P                 B                   EXPORT
+     D                 PI             9S 0
+     d  ptr                            *
+     d  pINNS                         9S 0 Const Options(*NOPASS)
+
+       pDB = ptr;
+
+       DBclrError(ptr);
+       select;
+         when %Parms >= %ParmNum(pINNS) and %Addr(pINNS) <> *NULL;
+            //ChainFNSO8A(ptr:pINNS);
+         other;
+            // Return value in buffer
+       endsl;
+       if DBerror(ptr);
+         Return *Zero;
+       endif;
+       Return *Zero ;  //db.FNSO8.Rec.INNSO8;
+     P                 E
+      * ------
+
+      *------------------------------------------------------------------------*
+      * [Export] dbPHPgetIDFD                                                  *
+      *  Retourne l'IDFD du membre                                             *
+      *------------------------------------------------------------------------*
+     P dbPHPgetIDFD...
+     P                 B                   EXPORT
+     D                 PI             3S 0
+     d  ptr                            *
+     d  pINNS                         9S 0 Const Options(*NOPASS)
+
+     D  xIDFD          S              3S 0
+     D  xEXID          S             13S 0
+       pDB = ptr;
+
+       DBclrError(ptr);
+       if %Parms >= %ParmNum(pINNS) and %Addr(pINNS) <> *NULL;
+         #keyLinkEXIDbyINNS(ptr:xIDFD:xEXID:pINNS);
+         if DBfound(ptr);
+           DBclrError(ptr);
+
+           ChainFYSL8e(ptr:xIDFD:xEXID);
+           If DBerror(ptr);
+           endif;
+
+         endif;
+       else;
+         // Return value in buffer
+       endif;
+       if DBerror(ptr);
+         Return *Zero;
+       endif;
+       Return db.FYSL8.Rec.IDFDL8;
+     P                 E
+      * ------
+
+      *------------------------------------------------------------------------*
+      * [Export] dbPHPgetEXID                                                  *
+      *  Retourne l'EXID du membre                                             *
+      *------------------------------------------------------------------------*
+     P dbPHPgetEXID...
+     P                 B                   EXPORT
+     D                 PI            13S 0
+     d  ptr                            *
+     d  pINNS                         9S 0 Const Options(*NOPASS)
+
+     D  xIDFD          S              3S 0
+     D  xEXID          S             13S 0
+       pDB = ptr;
+
+       DBclrError(ptr);
+       if %Parms >= %ParmNum(pINNS) and %Addr(pINNS) <> *NULL;
+         #keyLinkEXIDbyINNS(ptr:xIDFD:xEXID:pINNS);
+         if DBfound(ptr);
+           DBclrError(ptr);
+
+           ChainFYSL8e(ptr:xIDFD:xEXID);
+           If DBerror(ptr);
+           endif;
+
+         endif;
+       else;
+         // Return value in buffer
+       endif;
+       if DBerror(ptr);
+         Return *Zero;
+       endif;
+       Return db.FYSL8.Rec.EXIDL8;
+     P                 E
+      * ------
+
+      *------------------------------------------------------------------------*
+      * [Export] dbPHPgetLastName                                              *
+      *  Retourne le nom de famille du membre                                  *
+      *------------------------------------------------------------------------*
+     P dbPHPgetLastName...
+     P                 B                   EXPORT
+     D                 PI              A   VARYING Len(128)
+     d  ptr                            *
+     d  pINNS                         9S 0 Const Options(*NOPASS)
+
+     D  xIDFD          S              3S 0
+     D  xEXID          S             13S 0
+       pDB = ptr;
+
+       DBclrError(ptr);
+       if %Parms >= %ParmNum(pINNS) and %Addr(pINNS) <> *NULL;
+         #keyLinkEXIDbyINNS(ptr:xIDFD:xEXID:pINNS);
+         if DBfound(ptr);
+           DBclrError(ptr);
+
+           ChainFYSL8e(ptr:xIDFD:xEXID);
+           If DBerror(ptr);
+           endif;
+
+         endif;
+       else;
+            // Return value in buffer
+       endif;
+       if DBerror(ptr);
+         Return *Blank;
+       endif;
+       Return %triml(db.FYSL8.Rec.NAMBL8);
+     P                 E
+      * ------
+
+      *------------------------------------------------------------------------*
+      * [Export] dbPHPgetFirstName                                              *
+      *  Retourne le prénom du membre                                          *
+      *------------------------------------------------------------------------*
+     P dbPHPgetFirstName...
+     P                 B                   EXPORT
+     D                 PI              A   VARYING Len(128)
+     d  ptr                            *
+     d  pINNS                         9S 0 Const Options(*NOPASS)
+
+     D  xIDFD          S              3S 0
+     D  xEXID          S             13S 0
+       pDB = ptr;
+
+       DBclrError(ptr);
+       if %Parms >= %ParmNum(pINNS) and %Addr(pINNS) <> *NULL;
+         #keyLinkEXIDbyINNS(ptr:xIDFD:xEXID:pINNS);
+         if DBfound(ptr);
+           DBclrError(ptr);
+
+           ChainFYSL8e(ptr:xIDFD:xEXID);
+           If DBerror(ptr);
+           endif;
+
+         endif;
+       else;
+         // Return value in buffer
+       endif;
+       if DBerror(ptr);
+         Return *Blank;
+       endif;
+       Return %triml(db.FYSL8.Rec.PRNBL8);
+     P                 E
+      * ------
+
+      *------------------------------------------------------------------------*
+      * [Export] dbPHPgetBirthDate                                             *
+      *  Retourne la date de naissance du membre                               *
+      *------------------------------------------------------------------------*
+       DCL-PROC dbPHPgetBirthDate EXPORT;
+         DCL-PI *N    Date;
+            ptr              Pointer;
+            pINNS            Zoned(9) Const Options(*NoPass);
+         END-PI;
+         DCL-S  xIDFD        Zoned(3);
+         DCL-S  xEXID        Zoned(13);
+         DCL-S  wkDtN        Zoned(8:0);
+         DCL-S  wkDt         Date;
+
+        pDB = ptr;
+
+        DBclrError(ptr);
+        if %Parms >= %ParmNum(pINNS) and %Addr(pINNS) <> *NULL;
+          #keyLinkEXIDbyINNS(ptr:xIDFD:xEXID:pINNS);
+          if DBfound(ptr);
+            DBclrError(ptr);
+
+            ChainFYSL8e(ptr:xIDFD:xEXID);
+          endif;
+        else;
+          // Return value in buffer
+        endif;
+        if DBerror(ptr);
+          Return *Loval;
+        endif;
+
+        wkDtN = (db.FYSL8.Rec.NAIYL8*10**4)
+               +(db.FYSL8.Rec.NAIML8*10**2)
+               + db.FYSL8.Rec.NAIJL8;
+        Test(ED) *ISO wkDtN;
+        if %error;
+          Return *Loval;
+        endif;
+        Return %date(wkDtN:*ISO);
+
+       END-PROC dbPHPgetBirthDate;
+      * ------
+
+      *------------------------------------------------------------------------*
+      * [Export] dbPHPgetSexCd                                                 *
+      *  Retourne le code sexe du membre                                       *
+      *------------------------------------------------------------------------*
+       DCL-PROC dbPHPgetSexCd EXPORT;
+         DCL-PI *N    Zoned(1);
+            ptr              Pointer;
+            pINNS            Zoned(9) Const Options(*NoPass);
+         END-PI;
+         DCL-S  xIDFD        Zoned(3);
+         DCL-S  xEXID        Zoned(13);
+
+        pDB = ptr;
+
+        DBclrError(ptr);
+        if %Parms >= %ParmNum(pINNS) and %Addr(pINNS) <> *NULL;
+          #keyLinkEXIDbyINNS(ptr:xIDFD:xEXID:pINNS);
+          if DBfound(ptr);
+            DBclrError(ptr);
+
+            ChainFYSL8e(ptr:xIDFD:xEXID);
+          endif;
+        else;
+          // Return value in buffer
+        endif;
+        if DBerror(ptr);
+          Return *Zero;
+        endif;
+
+        Return db.FYSL8.Rec.SEXEL8;
+
+       END-PROC dbPHPgetSexCd;
+      * ------
+
+      *------------------------------------------------------------------------*
+      * [Export] dbPHPgetLanguageCd                                            *
+      *  Retourne le code sexe du membre                                       *
+      *------------------------------------------------------------------------*
+       DCL-PROC dbPHPgetLanguageCd EXPORT;
+         DCL-PI *N    Char(1);
+            ptr              Pointer;
+            pINNS            Zoned(9) Const Options(*NoPass);
+         END-PI;
+         DCL-S  xIDFD        Zoned(3);
+         DCL-S  xEXID        Zoned(13);
+
+        pDB = ptr;
+
+        DBclrError(ptr);
+        if %Parms >= %ParmNum(pINNS) and %Addr(pINNS) <> *NULL;
+          #keyLinkEXIDbyINNS(ptr:xIDFD:xEXID:pINNS);
+          if DBfound(ptr);
+            DBclrError(ptr);
+
+            ChainFYSL8e(ptr:xIDFD:xEXID);
+          endif;
+        else;
+          // Return value in buffer
+        endif;
+        if DBerror(ptr);
+          Return *Zero;
+        endif;
+
+        Return db.FYSL8.Rec.LANGL8;
+
+       END-PROC dbPHPgetLanguageCd;
+      * ------
+
+      *------------------------------------------------------------------------*
+      * [Export] dbPHPgetAddressHomeStreetName                                 *
+      *  Retourne l'EXID du membre                                             *
+      *------------------------------------------------------------------------*
+     P dbPHPgetAddressHomeStreetName...
+     P                 B                   EXPORT
+     D                 PI              A   Varying Len(128)
+     d  ptr                            *
+     d  pINNS                         9S 0 Const Options(*NOPASS)
+      *
+     D xIDFD           S              3S 0
+     D xEXID           S             13S 0
+     D ptrADRH         S               *
+
+
+       pDB = ptr;
+       ptrADRH = %addr(db.ADRJRH);
+
+       DBclrError(ptr);
+       if %Parms >= %ParmNum(pINNS) and %Addr(pINNS) <> *NULL;
+         #keyLinkEXIDbyINNS(ptr:xIDFD:xEXID:pINNS);
+         if DBfound(ptr);
+           DBclrError(ptr);
+
+           ChainADRJRb(ptr:xIDFD:xEXID:'H');
+           If DBerror(ptr);
+           endif;
+
+         else;
+           // Link not found ???  Erreur ???
+         endif;
+       else;
+         eval-corr db.Sts = db.ADRJRH.Sts;
+         eval-corr db.Err = db.ADRJRH.Err;
+       endif;
+       if DBerror(ptr);
+         Return *Zero;
+       endif;
+       Return %triml(db.ADRJRH.Rec.ABSTJR);
+     P                 E
+
+      * -----------------------------------------------------------------------
+      * ***
+      * -----------------------------------------------------------------------
+       //DCL-PROC #keyLinkEXIDbyINNS;
+       // DCL-PI *N    Ind;
+       //   ptr        Pointer;
+       //   pIDFD      Zoned(3)  ;
+       //   pEXID      Zoned(13) ;
+       //   pINNS      Zoned(9)  Const;
+       // //xDtSrch    Date      Const Options(*NOPASS);
+       // END-PI;
+       // // --- Define ---
+       //  DCL-S  todayN8      Zoned(8);
+       //
+       // pDB = ptr;
+       //
+       // DBclrError(ptr);
+       // DBclrStatus(ptr);
+       // todayN8 = %dec(%date():*ISO);
+       // Exec Sql
+       //  Select IDFDO9, EXIDO9 Into :pIDFD, :pEXID
+       //    From PLINO9
+       //   Where INNSO9 = :pINNS
+       //     And RONDO9 = '13'
+       //     And RDAVO9 <= :todayN8 And :todayN8 <= RDATO9;
+       // if not #sqlStatus();
+       //   Return *Off;
+       // endif;
+       // Return *On;
+       //
+       //END-PROC;
+      ** ------
+      *
+     p* #sqlStatus      B
+     d*                 PI              N
+      **-
+     D* xSQLState@      S               *   Inz( %addr(SQLState) )
+     D* xSQLState       DS             5    Based(xSQLState@)
+     D*  xSQLState2                    2a
+     D*  xSQLState3                    3a
+     D**-
+     D* SuccessSQL      C                   const('00')
+     D* WarningSQL      C                   const('01')
+     D* NoDataSQL       C                   const('02')
+      *
+       //select;
+       // when xSQLState2 = SuccessSQL;
+       //   db.Sts.found = *On;
+       //   Return *On;
+       //
+       // when xSQLState2 = WarningSQL;
+       //   db.Sts.found = *On;
+       //   db.Err.warning = *On;
+       //   db.Err.wrnCd = %char(SQLCOD);
+       //   Return *On;
+       //
+       // when xSQLState2 = NoDataSQL;
+       //   clear db.FYSL8;
+       //   db.Sts.found = *Off;
+       //   db.Err.warning = *On;
+       //   db.Err.wrnCd = %char(SQLCOD);
+       //   Return *On;
+       //
+       // other;         // ErrorSQL
+       //   clear db.FYSL8;
+       //   db.Sts.found = *On;
+       //   db.Err.error = *On;
+       //   db.Err.errCd = %char(SQLCOD);
+       //   Return *Off;
+       //endsl;
+     p*                 E
