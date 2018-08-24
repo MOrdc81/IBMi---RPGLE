@@ -1,0 +1,309 @@
+     H NoMain
+     h  Debug(*Yes)
+     h  Option(*SrcStmt:*NoDebugIO:*ShowCpy:*NoUnref)
+     h  AlwNull(*UsrCtl)
+     h* Thread(*Serialize)
+
+     FPFYSL8    IF   E             DISK    UsrOpn
+     f                                       InfDs(InfFYSL8)
+     FLFYSL8E   IF   E           K DISK    UsrOpn
+     f                                       Rename(rFYSL8:rFYSL8e)
+     f                                       InfDs(InfFYSL8e)
+
+      *--- Define File Information Data Structure -----------------------------
+      *************************************************************************
+     D infFYSL8        DS                  Qualified
+     d  rrn                  397    400I 0                                      * Relative-rcd-num
+     D infFYSL8e       DS                  Qualified
+     d  rrn                  397    400I 0                                      * Relative-rcd-num
+
+      *--- Define Program Status Data Structure -------------------------------
+      *************************************************************************
+     D psDS           SDS                  Qualified
+     d  PROC_NAME        *PROC                                                  * Procedure name
+     d  PGM_STATUS       *STATUS                                                * Status code
+     d  PRV_STATUS            16     20S 0                                      * Previous status
+     d  LINE_NUM              21     28                                         * Src list line num
+     d  ROUTINE          *ROUTINE                                               * Routine name
+     d  PARMS            *PARMS                                                 * Num passed parms
+     d  EXCP_ERR              40     46                                         * Exception Error
+     d  EXCP_TYPE             40     42                                         * Exception type
+     d  EXCP_NUM              43     46                                         * Exception number
+     d  EXCP_DATA             91    170                                         * Exception data
+
+      *- Declare Prototypes ---------------------------------------------------
+      *************************************************************************
+      /Define MDBFYSL8I
+      /COPY QHDRMODSRC,PDBFYSL8
+
+      /COPY QHDRMODSRC,PDBSYS
+      /COPY QHDRMODSRC,PDBPHPL
+
+
+      *--- Define Global Data ---(Level Job/ActGrp pour le module) ------------
+      *************************************************************************
+       DCL-S oCacheBufferActive   Ind Inz(*On);
+       DCL-S oCacheKeyActive      Ind Inz(*On);
+       DCL-S oCacheFileActive     Ind Inz(*Off);
+
+      *--- Define global structure DB with pointer --
+       DCL-DS db    Based(pDB) LikeDs(@dbPHP#dsPHP);
+       //DCL-DS dbL8  Based(pL8) LikeDs(@dbPHP#dsFYSL8);
+       DCL-DS dbL8  Based(pL8) LikeDs(@dbFYSL8#dsFYSL8);
+
+      *--- Define global KEY, DATA & STATUS for file access with percistence --
+       DCL-S  gkL8rrn          Int(10)               Inz ;
+       DCL-DS gbL8             LikeRec(rFYSL8)       Inz;
+       DCL-S  gLastAccessL8    Timestamp             Inz(*Loval);
+       //DCL-S  gLastKeyL8       Int(10)               Inz ;
+
+       DCL-DS gkL8e            LikeRec(rFYSL8e:*KEY) Inz ;
+       DCL-DS gbL8e            LikeRec(rFYSL8e)      Inz ;
+       DCL-S  gLastAccessL8e   Timestamp             Inz(*Loval);
+       //DCL-DS gLastKeyL8e      LikeRec(rFYSL8e:*KEY) Inz ;
+
+
+      *------------------------------------------------------------------------*
+      * Close file Input [Local/Export]                                        *
+      * -- Close all file from PFYSL8                                          *
+      *------------------------------------------------------------------------*
+       DCL-PROC CloseFYSL8inp  EXPORT;
+        DCL-PI *N    Ind;
+        END-PI;
+      *
+        if %open(PFYSL8);
+          Close PFYSL8;
+        endif;
+        if %open(LFYSL8E);
+          Close LFYSL8E;
+        endif;
+        Return *On;
+      *
+       END-PROC;
+
+      *-----------------------------------*
+
+      *------------------------------------------------------------------------*
+      * PROCEDURE [LOCAL.SERVICE]                                              *
+      * Reload File : PLEG00                                                   *
+      *   Force the reload data of files in the next getter                    *
+      *------------------------------------------------------------------------*
+       DCL-PROC ReloadFYSL8  EXPORT;
+        DCL-PI *N    Ind;
+        END-PI;
+      *
+        clear gkL8rrn;  //gLastKeyL8;
+        clear gLastAccessL8;
+        //clear gbL8;
+
+        clear gkL8e;  //gLastKeyL8e;
+        clear gLastAccessL8e;
+        //clear gbL8e;
+
+        //clear dbL8;  // Nothing
+        Return *On;
+      *
+       END-PROC;
+      *-----------------------------------*
+
+      *------------------------------------------------------------------------*
+      * Chain PFYSL8   [Local/Export]                                          *
+      * -- Load record from PFYSL8  by RRN                                     *
+      *------------------------------------------------------------------------*
+       DCL-PROC ChainFYSL8  EXPORT;
+        DCL-PI *N    Ind;
+          ptr        Pointer;
+          pRRN       Int(10) Const;
+        END-PI;
+        // --- Define ---
+         DCL-S  errParm     Ind Inz(*Off);
+      *
+       MONITOR;
+         pDB = ptr;
+         pL8 = %addr(db.FYSL8);
+
+         clear dbL8.Sts; // DBclrStatus(pL8);
+         clear dbL8.Err; // DBclrError(pL8);
+         exsr ChkParm;
+         if errParm = *Off;  // if no error in ChkParm
+
+           if not %open(PFYSL8);  // Opening file if not already opened
+             clear gbL8;
+             clear gLastAccessL8;
+             clear gkL8e;
+             clear gkL8rrn;
+             clear dbL8.Rec;    // ????
+             Open PFYSL8;
+           endif;
+
+           Select;
+             when oCacheFileActive  // Previous reading was same record
+              and pRRN = infFYSL8.rrn
+              and %found(PFYSL8);
+                 dbL8.Sts.found = *On;
+                 dbL8.Sts.fndInCache = *On;
+             other;             // Load data
+                 chain pRRN PFYSL8 gbL8;
+                 dbL8.Sts.found = %found(PFYSL8);
+                 gLastAccessL8 = %timestamp();
+           Endsl;
+           if dbL8.Sts.found; // DBfound(dbL8)
+             eval-corr dbL8.Rec = gbL8;
+           else;
+             clear dbL8.Rec; // And what about Errors, Warning  ??
+           endif;
+
+         else;  // Error in chkParm or initParm
+           clear dbL8.Rec;
+         endif;
+
+         eval-corr db.Sts = dbL8.Sts;
+         eval-corr db.Err = dbL8.Err;
+         Return *On;
+
+       ON-ERROR *All;
+         //clear gbL8;     // No data -> no cache ??? (utile ?)
+         clear dbL8.Rec; // No data -> no buffer
+         clear dbL8.Sts;
+         DBhandlerError(pL8:%addr(psDS));
+         //dbL8.Err.error = *On;
+         //dbL8.Err.ErrCd = psDS.EXCP_ERR;
+
+         eval-corr db.Sts = dbL8.Sts;
+         eval-corr db.Err = dbL8.Err;
+         Return *Off;
+       ENDMON;
+
+       // *** Subroutine ******************************************************
+       BegSr ChkParm;
+         exsr InitParm;
+         if pRRN <= *ZERO;
+           errParm = *On;
+           DBhandlerError(pL8:*OMIT:'MDB0001':'Error in parameters');
+           //dbL8.Err.error  = *On;
+           //dbL8.Err.ErrCd  = 'MDB0001';
+           //dbL8.Err.ErrMsg = 'Error in parameters';
+         endif;
+       EndSr;
+
+       BegSr InitParm;
+       EndSr;
+      *
+       END-PROC;
+      *-----------------------------------*
+
+      *------------------------------------------------------------------------*
+      * Chain LFYSL8e  [Local/Export]                                          *
+      * -- Load record from LFYSL8e by INNS                                    *
+      *------------------------------------------------------------------------*
+       DCL-PROC ChainFYSL8e  EXPORT;
+        DCL-PI *N    Ind;
+          ptr        Pointer;
+          pIDFD      Zoned(3)  Const;
+          pEXID      Zoned(13) Const;
+        END-PI;
+        // --- Define ---
+         DCL-S  errParm     Ind Inz(*Off);
+      *
+       MONITOR;
+         pDB = ptr;
+         pL8 = %addr(db.FYSL8);
+
+         exsr ChkParm;
+         if not(errParm);  // if no error in ChkParm
+
+           if not %open(LFYSL8E);  // Opening file if not already opened
+             clear gbL8e;
+             clear gLastAccessL8e;
+             clear gkL8e; //gLastKeyL8e;
+             clear dbL8.Rec;      // ???
+             Open LFYSL8E;
+           endif;
+
+           Select;
+             when oCacheBufferActive  // The buffer must already contain the data
+              and pIDFD = dbL8.Rec.IDFDL8
+              and pEXID = dbL8.Rec.EXIDL8
+              and dbL8.Sts.found;
+               //No action, data already in buffer
+
+             when oCacheKeyActive   // The previous reading keys were the same
+              and pIDFD = gkL8e.IDFDL8
+              and pEXID = gkL8e.EXIDL8
+              and %found(LFYSL8E);
+                 eval-corr dbL8.Rec = gbL8e; // Reload buffer by cache DS
+                 dbL8.Sts.found = *On;
+                 dbL8.Sts.fndInCache = *On;
+
+             when oCacheFileActive  // Previous reading was same record
+              and pIDFD = gbL8e.IDFDL8
+              and pEXID = gbL8e.EXIDL8
+              and %found(LFYSL8E);
+                 eval-corr dbL8.Rec = gbL8e;  // Reload buffer by cache DS
+                 dbL8.Sts.found = *On;
+                 dbL8.Sts.fndInCache = *On;
+
+             other;             // Load data
+                 clear dbL8.Sts;
+                 clear dbL8.Err;
+                            gkL8e.IDFDL8 = pIDFD;
+                            gkL8e.EXIDL8 = pEXID;
+                 chain %kds(gkL8e:2) LFYSL8E gbL8e;
+                 dbL8.Sts.found = %found(LFYSL8E);
+                 if dbL8.Sts.found;
+                   eval-corr dbL8.Rec = gbL8e;
+                   gLastAccessL8e = %timestamp();
+                 else;
+                   clear dbL8.Rec; // And what about Errors, Warning  ??
+                   dbL8.Err.warning = *On;
+                   dbL8.Err.wrnCd   = 'STS0012'; // ?????  psDS.EXCP_ERR
+                   dbL8.Err.wrnMsg = 'Data not found';
+                 endif;
+           Endsl;
+
+         else;  // Error in chkParm or initParm
+           clear dbL8.Rec;
+           // The error is monitored in the parameters
+         endif;
+
+         eval-corr db.Sts = dbL8.Sts;
+         eval-corr db.Err = dbL8.Err;
+         Return *On;
+
+       ON-ERROR *All;
+         clear gbL8e;    // No data -> no cache
+         clear dbL8.Rec; // No data -> no buffer
+         clear dbL8.Sts; //         -> no status (default=*Off)
+         DBhandlerError(pL8:%addr(psDS));
+         //dbL8.Err.error = *On;
+         //dbL8.Err.ErrCd = psDS.EXCP_ERR;
+
+         eval-corr db.Sts = dbL8.Sts;
+         eval-corr db.Err = dbL8.Err;
+         Return *Off;
+       ENDMON;
+
+       // *** Subroutine ******************************************************
+       BegSr ChkParm;
+         exsr InitParm;
+         if pIDFD <= *ZERO;
+           errParm = *On;
+           DBhandlerError(pL8:*OMIT:'MDB0001':'Error in parameters');
+           //dbL8.Err.error  = *On;
+           //dbL8.Err.ErrCd  = 'MDB0001';
+           //dbL8.Err.ErrMsg = 'Error in parameters';
+         endif;
+         if pEXID <= *ZERO;
+           errParm = *On;
+           DBhandlerError(pL8:*OMIT:'MDB0002':'Error in parameters');
+           //dbL8.Err.error  = *On;
+           //dbL8.Err.ErrCd  = 'MDB0002';
+           //dbL8.Err.ErrMsg = 'Error in parameters';
+         endif;
+
+       EndSr;
+       BegSr InitParm;
+       EndSr;
+      *
+       END-PROC;
+      *-----------------------------------*
