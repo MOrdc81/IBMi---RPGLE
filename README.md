@@ -1,2 +1,2 @@
-# IBMi(iSeries) - free RPGLE
+# IBMi (iSeries) - free RPGLE
 Code RPG for iSeries
